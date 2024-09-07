@@ -1,2 +1,9 @@
 streamlit
 pandas
+bs4
+lxml
+scikit-learn
+tensorflow
+
+
+# streamlit run streamlit_app.py --server.enableCORS false --server.enableXsrfProtection false

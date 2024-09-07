@@ -26,8 +26,11 @@ class DataIngestion:
         self.df = None  # DataFrame to store fetched data
 
     def get_data(self):
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        }
         BASE_URL = "http://ffw.mrcmekong.org/fetchwet_st.php?StCode="
-        r = requests.get(BASE_URL + self.station_code)
+        r = requests.get(BASE_URL + self.station_code, headers=headers)
         soup = BeautifulSoup(r.content, 'lxml')
         body = soup.find('body')
         data_string = body.text
@@ -47,6 +50,7 @@ class DataIngestion:
         data = json.loads(data_string)
         self.df = pd.DataFrame(data)
         self.df['date_gmt'] = self.df['date_gmt'].apply(lambda x: x.split("-")[1] + "-" + x.split("-")[2])
+        self.df.to_csv('../data/data.csv')
         self.df['station'] = self.station_name
 
         return self.df

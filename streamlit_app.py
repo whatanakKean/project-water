@@ -1,7 +1,6 @@
 import streamlit as st
 import pandas as pd
 from pathlib import Path
-import matplotlib.pyplot as plt
 from datetime import datetime
 
 # Set the title and favicon that appear in the Browser's tab bar.

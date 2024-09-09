@@ -1,149 +1,132 @@
 import streamlit as st
 import pandas as pd
-import math
 from pathlib import Path
-
+import matplotlib.pyplot as plt
+from datetime import datetime
 
 # Set the title and favicon that appear in the Browser's tab bar.
 st.set_page_config(
     page_title='Water Level Dashboard',
-    page_icon=':earth_americas:', # This is an emoji shortcode. Could be a URL too.
+    page_icon=':droplet:',  # This is an emoji shortcode. Could be a URL too.
 )
 
 # -----------------------------------------------------------------------------
 # Declare some useful functions.
 
 @st.cache_data
-def get_gdp_data():
-    """Grab GDP data from a CSV file.
+def get_water_level_data():
+    """Grab water level data from a CSV file.
 
     This uses caching to avoid having to read the file every time. If we were
     reading from an HTTP endpoint instead of a file, it's a good idea to set
     a maximum age to the cache with the TTL argument: @st.cache_data(ttl='1d')
     """
+    DATA_FILENAME = Path(__file__).parent / 'src/data/data_predicted_PPB.csv'
+    raw_data_df = pd.read_csv(DATA_FILENAME, parse_dates=['DATE_GMT'])
+    
+    return raw_data_df
 
-    # Instead of a CSV on disk, you could read from an HTTP endpoint here too.
-    DATA_FILENAME = Path(__file__).parent/'data/gdp_data.csv'
-    raw_gdp_df = pd.read_csv(DATA_FILENAME)
+water_level_df = get_water_level_data()
 
-    MIN_YEAR = 1960
-    MAX_YEAR = 2022
-
-    # The data above has columns like:
-    # - Country Name
-    # - Country Code
-    # - [Stuff I don't care about]
-    # - GDP for 1960
-    # - GDP for 1961
-    # - GDP for 1962
-    # - ...
-    # - GDP for 2022
-    #
-    # ...but I want this instead:
-    # - Country Name
-    # - Country Code
-    # - Year
-    # - GDP
-    #
-    # So let's pivot all those year-columns into two: Year and GDP
-    gdp_df = raw_gdp_df.melt(
-        ['Country Code'],
-        [str(x) for x in range(MIN_YEAR, MAX_YEAR + 1)],
-        'Year',
-        'GDP',
-    )
-
-    # Convert years from string to integers
-    gdp_df['Year'] = pd.to_numeric(gdp_df['Year'])
-
-    return gdp_df
-
-gdp_df = get_gdp_data()
+# Convert DATE_GMT to datetime.date
+water_level_df['DATE_GMT'] = water_level_df['DATE_GMT'].dt.date
 
 # -----------------------------------------------------------------------------
 # Draw the actual page
 
 # Set the title that appears at the top of the page.
-'''
-# :earth_americas: GDP dashboard
-
-'''
+st.title('Water Level PoC')
 
 # Add some spacing
-''
-''
+st.write('')
 
-min_value = gdp_df['Year'].min()
-max_value = gdp_df['Year'].max()
-
-from_year, to_year = st.slider(
-    'Which years are you interested in?',
-    min_value=min_value,
-    max_value=max_value,
-    value=[min_value, max_value])
-
-countries = gdp_df['Country Code'].unique()
-
-if not len(countries):
-    st.warning("Select at least one country")
-
-selected_countries = st.multiselect(
-    'Which countries would you like to view?',
-    countries,
-    ['DEU', 'FRA', 'GBR', 'BRA', 'MEX', 'JPN'])
-
-''
-''
-''
-
-# Filter the data
-filtered_gdp_df = gdp_df[
-    (gdp_df['Country Code'].isin(selected_countries))
-    & (gdp_df['Year'] <= to_year)
-    & (from_year <= gdp_df['Year'])
-]
-
-st.header('GDP over time', divider='gray')
-
-''
-
-st.line_chart(
-    filtered_gdp_df,
-    x='Year',
-    y='GDP',
-    color='Country Code',
+# Add the clickable Google Maps link
+st.markdown(
+    """
+    Data Location (Google Map): [link](https://www.google.com/maps/place/11%C2%B033'46.3%22N+104%C2%B056'07.5%22E/@11.5628639,104.9328323,17z/data=!3m1!4b1!4m4!3m3!8m2!3d11.5628587!4d104.9354126?entry=tts&g_ep=EgoyMDI0MDkwNC4wKgBIAVAD).
+    """
 )
 
-''
-''
+# Filter the data by date range
+min_date = water_level_df['DATE_GMT'].min()
+max_date = water_level_df['DATE_GMT'].max()
+
+from_date, to_date = st.slider(
+    'Select the date range:',
+    min_value=min_date,
+    max_value=max_date,
+    value=[min_date, max_date],
+    format="YYYY-MM-DD"
+)
+
+# Filter data based on selected date range
+filtered_data_df = water_level_df[
+    (water_level_df['DATE_GMT'] >= from_date)
+    & (water_level_df['DATE_GMT'] <= to_date)
+]
 
 
-first_year = gdp_df[gdp_df['Year'] == from_year]
-last_year = gdp_df[gdp_df['Year'] == to_year]
+# Classify the risk
+def classify_risk(level):
+    if level > 8:
+        return 'High Risk'
+    elif 5 < level <= 8:
+        return 'Medium Risk'
+    else:
+        return 'Low Risk'
 
-st.header(f'GDP in {to_year}', divider='gray')
+# Display the latest water levels and predictions
+latest_data = filtered_data_df.iloc[-1]
 
-''
+# Determine the risk classification
+risk_classification = classify_risk(latest_data["water_level"])
 
-cols = st.columns(4)
+# Add a horizontal line
+st.markdown("---")
 
-for i, country in enumerate(selected_countries):
-    col = cols[i % len(cols)]
+# Create columns for the metric and risk classification
+col1, col2 = st.columns([3, 2])  # Adjust the ratios based on your layout needs
 
-    with col:
-        first_gdp = first_year[first_year['Country Code'] == country]['GDP'].iat[0] / 1000000000
-        last_gdp = last_year[last_year['Country Code'] == country]['GDP'].iat[0] / 1000000000
+with col1:
+    today_date = datetime.today().strftime('%Y-%m-%d')
+    st.metric(
+        label=f'Latest Water Level ({today_date})',
+        value=f'{latest_data["water_level"]:.2f}',
+        delta=f'{latest_data["Predicted_Water_Level"]:.2f}',
+        delta_color='normal'
+    )
 
-        if math.isnan(first_gdp):
-            growth = 'n/a'
-            delta_color = 'off'
-        else:
-            growth = f'{last_gdp / first_gdp:,.2f}x'
-            delta_color = 'normal'
+with col2:
+    if risk_classification == 'High Risk':
+        st.markdown(f"<h4 style='color: red;'>**Risk Classification:** {risk_classification}</h5>", unsafe_allow_html=True)
+    elif risk_classification == 'Medium Risk':
+        st.markdown(f"<h4 style='color: orange;'>**Risk Classification:** {risk_classification}</h4>", unsafe_allow_html=True)
+    else:
+        st.markdown(f"<h4 style='color: green;'>**Risk Classification:** {risk_classification}</h4>", unsafe_allow_html=True)
 
-        st.metric(
-            label=f'{country} GDP',
-            value=f'{last_gdp:,.0f}B',
-            delta=growth,
-            delta_color=delta_color
-        )
+# Add a horizontal line
+st.markdown("---")
+
+
+# Display water levels and predictions
+st.line_chart(
+    filtered_data_df.set_index('DATE_GMT')[['water_level', 'Predicted_Water_Level']],
+    color=["#FF0000", "#0000FF"]
+)
+
+
+# Optional: Display historical and predicted water levels in a table
+st.write("Historical and Predicted Water Levels")
+st.dataframe(filtered_data_df[['DATE_GMT', 'water_level', 'Predicted_Water_Level']])
+
+
+# Create a risk classification table
+risk_table_df = pd.DataFrame({
+    'Classification': ['High Risk', 'Medium Risk', 'Low Risk'],
+    'Description': ['Water level > 8', '5 < Water level ≤ 8', 'Water level ≤ 5'],
+    'Color': ['red', 'orange', 'green']
+})
+
+# Display the risk classification table
+st.write("**Risk Classification Table (For Demo Purpose only)**")
+st.dataframe(risk_table_df.style.applymap(lambda x: f'background-color: {x}' if x in ['red', 'orange', 'green'] else ''))

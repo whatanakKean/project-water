@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 from sklearn.preprocessing import MinMaxScaler
+import tensorflow as tf
 from tensorflow.keras.preprocessing.sequence import TimeseriesGenerator
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Dense, LSTM
@@ -13,11 +14,11 @@ class LSTMModelTrainer:
         self.batch_size = batch_size
         self.model = None
         self.scaler = MinMaxScaler()
-        self.filepath = f"../models/LSTM_{station_code}.h5"
+        self.filepath = f"../models/LSTM_{station_code}.keras"
     
     def prepare_data(self):
-        self.train = self.data.iloc[:1222]
-        self.test = self.data.iloc[1222:]
+        self.train = self.data.iloc[:1212]
+        self.test = self.data.iloc[1212:]
         
         # Scale the data
         self.scaled_train = self.scaler.fit_transform(self.train)
@@ -32,6 +33,8 @@ class LSTMModelTrainer:
             self.scaled_test, self.scaled_test, 
             length=self.look_back, batch_size=self.batch_size
         )
+        print("Scaled test: ", len(self.scaled_test))
+        
 
     def train_model(self, epochs=100, patience=10):
         self.model = Sequential()
@@ -57,7 +60,32 @@ class LSTMModelTrainer:
         - loss: The loss value on the test set.
         """
         if self.model is None:
-            raise ValueError("Model is not built. Call 'build_model()' first.")
+            self.model = tf.keras.models.load_model(self.filepath)
+
+        # Make predictions
+        predictions = self.model.predict(self.test_generator)
+
+        # Inverse scale predictions to original values
+        predictions_inverse = self.scaler.inverse_transform(predictions)
+
+        # Create a DataFrame for predictions
+        prediction_dates = self.test.index[self.look_back:]
+        predictions_df = pd.DataFrame(
+            data=predictions_inverse, 
+            index=prediction_dates, 
+            columns=['Predicted_Water_Level']
+        )
+
+        # Add predictions to the test DataFrame
+        self.test = self.test.copy()  # Ensure we don't modify the original DataFrame
+        self.test['Predicted_Water_Level'] = predictions_df['Predicted_Water_Level']
+        #Exclude 10 days
+        self.test = self.test.iloc[11:]
+
+        # Optionally, save the updated DataFrame to a CSV file
+        self.test.to_csv(f'../data/data_predicted_PPB.csv')
+
+        # Merge prediction to original data 
         
         loss = self.model.evaluate(self.test_generator, verbose=0)
         return loss

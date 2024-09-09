@@ -16,4 +16,5 @@ class DataPreprocessor:
         df_non_zero.set_index('DATE_GMT', inplace=True)
         df_non_zero.index.freq='D'
 
+        df_non_zero.to_csv('../data/data_preprocessed_PPB.csv')
         return df_non_zero

@@ -116,7 +116,7 @@ class WaterLevelModel:
             self.load_model()
 
         self.data = pd.read_csv('src/data/water_level.csv', index_col=0, parse_dates=True)
-        test = self.data.last('10D')
+        test = self.datax
         
         scaled_test = self.scaler.transform(test)
         input_data = scaled_test[-10:].reshape(1, 10, 1)

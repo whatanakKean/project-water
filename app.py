@@ -1,21 +1,36 @@
-from flask import Flask, jsonify
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import JSONResponse
+import pandas as pd
+from pydantic import BaseModel
 from src.pipelines.Waterlevel_pipeline import WaterLevelModel
 
+# Define the request model for input JSON
+class PredictionRequest(BaseModel):
+    forward: int
 
-app = Flask(__name__)
+app = FastAPI()
 
-@app.route('/predict', methods=['GET'])
-def predict():
+@app.get("/predict")
+def predict(request: PredictionRequest):
     try:
+        # Extract the 'forward' value from the request
+        forward_steps = request.forward
+        print(forward_steps)
+        
+        # Initialize your pipeline with station_code (assumed to be "PPB")
         pipeline = WaterLevelModel(station_code="PPB")
-        prediction = pipeline.run_prediction_pipeline()
+        
+        # Run the prediction pipeline with 'forward_steps' (if applicable)
+        prediction = pipeline.run_prediction_pipeline(forward_steps)
+        prediction['timestamp'] = prediction['timestamp'].apply(lambda x: x.isoformat() if isinstance(x, pd.Timestamp) else x)
+        prediction = prediction.to_dict(orient="records")
+        
         # Prepare the response
         response = {
-            "predictions": prediction.tolist()
+            "status": "Success",
+            "data": prediction
         }
-        return jsonify(response), 200
+       
+        return JSONResponse(content=response, status_code=200)
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-if __name__ == '__main__':
-    app.run(debug=True)
+        raise HTTPException(status_code=500, detail=str(e))

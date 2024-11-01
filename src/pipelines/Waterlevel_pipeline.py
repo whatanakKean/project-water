@@ -4,7 +4,7 @@ import requests
 import json
 from sklearn.preprocessing import MinMaxScaler
 from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import LSTM, Dense
+from tensorflow.keras.layers import LSTM, GRU, Dense
 from tensorflow.keras.callbacks import EarlyStopping
 from tensorflow.keras.models import load_model
 import joblib
@@ -24,7 +24,7 @@ LOWER_MEKONG_STATION_CODES =  [
 ]
 
 class WaterLevelModel:
-    def __init__(self, station_code="PPB", look_back=10, batch_size=32):
+    def __init__(self, station_code="PPB", look_back=15, batch_size=32):
         self.station_code = station_code
         self.look_back = look_back
         self.batch_size = batch_size
@@ -71,66 +71,70 @@ class WaterLevelModel:
         df_non_zero = df_long[df_long['water_level'] != 0]
         df_non_zero.set_index('DATE_GMT', inplace=True)
         df_non_zero.index.freq='D'
-
-        df_non_zero.to_csv('src/data/water_level.csv', index=True)
         
         # Split the data into training and testing sets
-        train = df_non_zero.iloc[:1222]
-        test = df_non_zero.iloc[1222:]
+        self.train = df_non_zero.iloc[:1222]
+        self.test = df_non_zero.iloc[1222:]
         
         # Scale the data
-        self.scaler.fit(train)  # Fit on train
-        scaled_train = self.scaler.transform(train)
-        scaled_test = self.scaler.transform(test)
+        self.scaler.fit(self.train)  # Fit on train
+        self.scaled_train = self.scaler.transform(self.train)
+        self.scaled_test = self.scaler.transform(self.test)
         
         # Create TimeseriesGenerator for training and testing data
-        self.train_generator = TimeseriesGenerator(scaled_train, scaled_train, length=self.look_back, batch_size=self.batch_size)
-        self.test_generator = TimeseriesGenerator(scaled_test, scaled_test, length=self.look_back, batch_size=self.batch_size)
+        self.train_generator = TimeseriesGenerator(self.scaled_train, self.scaled_train, length=self.look_back, batch_size=self.batch_size)
+        self.test_generator = TimeseriesGenerator(self.scaled_test, self.scaled_test, length=self.look_back, batch_size=self.batch_size)
 
     def build_model(self):
         # Build the LSTM model
         self.model = Sequential()
-        self.model.add(LSTM(50, activation='relu', input_shape=(self.look_back, 1)))
+        self.model.add(LSTM(200, activation='relu', return_sequences=True, input_shape=(self.look_back, self.scaled_train.shape[1])))
+        self.model.add(LSTM(100, return_sequences=True))
+        self.model.add(GRU(50))
         self.model.add(Dense(1))
         self.model.compile(optimizer='adam', loss='mse')
 
     def train_model(self):
         early_stop = EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True)
-        self.history = self.model.fit(self.train_generator, epochs=50, callbacks=[early_stop], verbose=1)
+        self.history = self.model.fit(self.train_generator, epochs=100, callbacks=[early_stop], verbose=1)
 
     def evaluate_model(self):
         loss = self.model.evaluate(self.test_generator)
         print(f"Test Loss: {loss}")
 
-    def save_model(self, model_path='src/models/lstm_model.keras', scaler_path='src/models/scaler.pkl'):
+    def save_model(self, model_path='lstm_model.keras', scaler_path='scaler.pkl'):
         self.model.save(model_path)
         joblib.dump(self.scaler, scaler_path)
 
-    def load_model(self, model_path='src/models/lstm_model.keras', scaler_path='src/models/scaler.pkl'):
+    def load_model(self, model_path='lstm_model.keras', scaler_path='scaler.pkl'):
         self.model = load_model(model_path)
         self.scaler = joblib.load(scaler_path)
 
-    def make_predictions(self):
-        # Check if model is trained
+    def make_predictions(self, forward):
+        # Check if model is loaded
         if self.model is None:
             self.load_model()
 
-        self.data = pd.read_csv('src/data/water_level.csv', index_col=0, parse_dates=True)
-        test = self.datax
-        
-        scaled_test = self.scaler.transform(test)
-        input_data = scaled_test[-10:].reshape(1, 10, 1)
-        
         # Make predictions
-        predictions = self.model.predict(input_data)
+        predictions = self.model.predict(self.test_generator)
 
-        # Inverse scale predictions to original values
+        # Reshape the predictions if needed (since TimeseriesGenerator may generate 3D data)
+        predictions = predictions.reshape(-1, 1)
+
+        # Inverse transform the predictions back to the original scale
         predictions_inverse = self.scaler.inverse_transform(predictions)
 
-        print(predictions_inverse)
+        # Get the last date from the test set DataFrame (df_non_zero) after preprocessing
+        last_date = pd.to_datetime(self.test.index[-1])  # Access df_non_zero created in preprocess_data()
+        future_dates = pd.date_range(last_date + pd.Timedelta(days=1), periods=forward)
 
-        # Return the original test data and predictions
-        return predictions_inverse
+        # Prepare a DataFrame for future predictions
+        results_df = pd.DataFrame({
+            'timestamp': future_dates,
+            'predicted': predictions_inverse[-forward:].flatten()  # Use the last 'forward' predictions
+        })
+
+        return results_df
 
     def run_training_pipeline(self):
         self.fetch_data()
@@ -140,22 +144,25 @@ class WaterLevelModel:
         self.evaluate_model()
         self.save_model()
 
-    def run_prediction_pipeline(self):
-        predictions_inverse = self.make_predictions()
+    def run_prediction_pipeline(self, forward):
+        self.fetch_data()
+        self.preprocess_data()
+        predictions_inverse = self.make_predictions(forward)
         return predictions_inverse
     
 
     # Get data
     def get_waterlevel(self, step='10D'):
-        self.data = pd.read_csv('src/data/water_level.csv', index_col=0, parse_dates=True)
+        self.data = pd.read_csv('water_level.csv', index_col=0, parse_dates=True)
         waterlevel = self.data.last(step)
         return waterlevel
         
 
 
 # # Example usage:
-# pipeline = TrainingPipeline(station_code="PPB")
+# pipeline = WaterLevelModel(station_code="PPB")
 # pipeline.run_training_pipeline()
 
-pipeline = WaterLevelModel(station_code="PPB")
-prediction = pipeline.run_prediction_pipeline()
+# pipeline = WaterLevelModel(station_code="PPB")
+# prediction = pipeline.run_prediction_pipeline(forward=15)
+# print(prediction.head(15))

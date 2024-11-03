@@ -2,7 +2,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
 import pandas as pd
 from pydantic import BaseModel
-from src.pipelines.Waterlevel_pipeline import WaterLevelModel
+from pipelines.Waterlevel_pipeline_v1 import WaterLevelModel
 
 # Define the request model for input JSON
 class PredictionRequest(BaseModel):
